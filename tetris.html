@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>테트리스</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #e0e0e0;
+    }
+
+    .wrapper {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    canvas#board {
+      border: 2px solid #334;
+      background: #080810;
+      display: block;
+      box-shadow: 0 0 30px rgba(80, 120, 255, 0.2);
+    }
+
+    .side {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 120px;
+    }
+
+    .panel {
+      background: #12122a;
+      border: 1px solid #334;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .panel h3 {
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #556;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .panel .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #88aaff;
+      font-family: 'Courier New', monospace;
+    }
+
+    canvas#next {
+      display: block;
+      margin: 0 auto;
+    }
+
+    .controls {
+      font-size: 11px;
+      color: #445;
+      line-height: 2;
+    }
+    .controls span { color: #667; }
+
+    #startBtn {
+      width: 100%;
+      padding: 10px;
+      background: #2233aa;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.2s;
+    }
+    #startBtn:hover { background: #3344cc; }
+
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.75);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      pointer-events: none;
+    }
+    #overlay h2 { font-size: 28px; color: #fff; letter-spacing: 3px; }
+    #overlay p  { font-size: 13px; color: #aaa; }
+    #overlay.hidden { display: none; }
+
+    .board-wrap { position: relative; }
+
+    .hearts {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .heart {
+      font-size: 20px;
+      line-height: 1;
+      transition: transform 0.2s;
+    }
+    .heart.lost {
+      filter: grayscale(1) brightness(0.4);
+      transform: scale(0.85);
+    }
+
+    #overlay.life-lost { background: rgba(180, 0, 0, 0.6); }
+    #overlay.life-lost h2 { color: #ff6060; font-size: 24px; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <!-- 사이드 패널 (왼쪽) -->
+  <div class="side">
+    <div class="panel">
+      <h3>Lives</h3>
+      <div class="hearts" id="hearts"></div>
+    </div>
+    <div class="panel">
+      <h3>Score</h3>
+      <div class="value" id="score">0</div>
+    </div>
+    <div class="panel">
+      <h3>Level</h3>
+      <div class="value" id="level">1</div>
+    </div>
+    <div class="panel">
+      <h3>Lines</h3>
+      <div class="value" id="lines">0</div>
+    </div>
+  </div>
+
+  <!-- 보드 -->
+  <div class="board-wrap">
+    <canvas id="board" width="300" height="600"></canvas>
+    <div id="overlay">
+      <h2>TETRIS</h2>
+      <p>아무 키나 눌러 시작</p>
+    </div>
+  </div>
+
+  <!-- 사이드 패널 (오른쪽) -->
+  <div class="side">
+    <div class="panel">
+      <h3>Next</h3>
+      <canvas id="next" width="100" height="100"></canvas>
+    </div>
+    <div class="panel">
+      <div class="controls">
+        <span>←→</span> 이동<br>
+        <span>↑</span> 회전<br>
+        <span>↓</span> 소프트 드롭<br>
+        <span>Space</span> 하드 드롭<br>
+        <span>P</span> 일시정지
+      </div>
+    </div>
+    <button id="startBtn">시작</button>
+  </div>
+</div>
+
+<script>
+const COLS = 10, ROWS = 20;
+const BLOCK = 30;
+
+const canvas  = document.getElementById('board');
+const ctx     = canvas.getContext('2d');
+const nextCvs = document.getElementById('next');
+const nctx    = nextCvs.getContext('2d');
+const overlay = document.getElementById('overlay');
+
+// 점수 / 레벨 / 줄 / 목숨
+const MAX_LIVES = 3;
+let lives = MAX_LIVES;
+let score = 0, level = 1, lines = 0;
+
+// 테트로미노 정의
+const PIECES = [
+  { shape: [[1,1,1,1]],                         color: '#00f0f0' }, // I
+  { shape: [[1,1],[1,1]],                        color: '#f0f000' }, // O
+  { shape: [[0,1,0],[1,1,1]],                    color: '#a000f0' }, // T
+  { shape: [[1,0,0],[1,1,1]],                    color: '#f0a000' }, // J
+  { shape: [[0,0,1],[1,1,1]],                    color: '#0000f0' }, // L
+  { shape: [[0,1,1],[1,1,0]],                    color: '#00f000' }, // S
+  { shape: [[1,1,0],[0,1,1]],                    color: '#f00000' }, // Z
+];
+
+// 보드 (0 = 빈칸, 색상 문자열 = 채워짐)
+let board = [];
+let current = null, ghost = null;
+let nextPiece = null;
+let gameOver = false, paused = false;
+let dropInterval = 1000;
+let lastTime = 0, dropCounter = 0;
+let animId = null;
+
+// ── 초기화 ────────────────────────────────────────────
+function initBoard() {
+  board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+}
+
+function newPiece() {
+  const def = nextPiece || randomPieceDef();
+  nextPiece = randomPieceDef();
+  return {
+    shape: def.shape,
+    color: def.color,
+    x: Math.floor(COLS / 2) - Math.floor(def.shape[0].length / 2),
+    y: 0,
+  };
+}
+
+function randomPieceDef() {
+  return PIECES[Math.floor(Math.random() * PIECES.length)];
+}
+
+// ── 충돌 / 이동 ───────────────────────────────────────
+function collides(piece, ox = 0, oy = 0, shape = piece.shape) {
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (!shape[r][c]) continue;
+      const nx = piece.x + c + ox;
+      const ny = piece.y + r + oy;
+      if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
+      if (ny >= 0 && board[ny][nx]) return true;
+    }
+  }
+  return false;
+}
+
+function rotate(shape) {
+  const rows = shape.length, cols = shape[0].length;
+  return Array.from({ length: cols }, (_, c) =>
+    Array.from({ length: rows }, (_, r) => shape[rows - 1 - r][c])
+  );
+}
+
+function tryRotate() {
+  const rotated = rotate(current.shape);
+  const kicks = [0, 1, -1, 2, -2];
+  for (const kick of kicks) {
+    if (!collides(current, kick, 0, rotated)) {
+      current.shape = rotated;
+      current.x += kick;
+      updateGhost();
+      return;
+    }
+  }
+}
+
+function moveLeft()  { if (!collides(current, -1)) { current.x--; updateGhost(); } }
+function moveRight() { if (!collides(current,  1)) { current.x++; updateGhost(); } }
+
+function softDrop() {
+  if (!collides(current, 0, 1)) {
+    current.y++;
+    score += 1;
+    updateScore();
+  } else {
+    lock();
+  }
+}
+
+function hardDrop() {
+  let dropped = 0;
+  while (!collides(current, 0, 1)) { current.y++; dropped++; }
+  score += dropped * 2;
+  updateScore();
+  lock();
+}
+
+// ── 고스트 ────────────────────────────────────────────
+function updateGhost() {
+  ghost = { ...current, shape: current.shape };
+  while (!collides(ghost, 0, 1)) ghost.y++;
+}
+
+// ── 잠금 / 줄 삭제 ───────────────────────────────────
+function lock() {
+  let overflowed = false;
+  current.shape.forEach((row, r) => {
+    row.forEach((val, c) => {
+      if (!val) return;
+      const y = current.y + r;
+      if (y < 0) { overflowed = true; return; }
+      board[y][current.x + c] = current.color;
+    });
+  });
+  if (overflowed) { loseLife(); return; }
+  clearLines();
+  current = newPiece();
+  updateGhost();
+  if (collides(current)) { loseLife(); return; }
+  drawNext();
+}
+
+function clearLines() {
+  let cleared = 0;
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (board[r].every(c => c !== 0)) {
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(0));
+      cleared++;
+      r++;
+    }
+  }
+  if (!cleared) return;
+  const pts = [0, 100, 300, 500, 800];
+  score += (pts[cleared] || 800) * level;
+  lines += cleared;
+  level = Math.floor(lines / 10) + 1;
+  dropInterval = Math.max(100, 1000 - (level - 1) * 80);
+  updateScore();
+}
+
+function updateScore() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('level').textContent = level;
+  document.getElementById('lines').textContent = lines;
+}
+
+function updateLives() {
+  const heartsEl = document.getElementById('hearts');
+  heartsEl.innerHTML = '';
+  for (let i = 0; i < MAX_LIVES; i++) {
+    const span = document.createElement('span');
+    span.className = 'heart' + (i >= lives ? ' lost' : '');
+    span.textContent = '❤';
+    heartsEl.appendChild(span);
+  }
+}
+
+// ── 그리기 ────────────────────────────────────────────
+function drawBlock(context, x, y, color, alpha = 1) {
+  context.globalAlpha = alpha;
+  context.fillStyle = color;
+  context.fillRect(x * BLOCK + 1, y * BLOCK + 1, BLOCK - 2, BLOCK - 2);
+  // 하이라이트
+  context.fillStyle = 'rgba(255,255,255,0.18)';
+  context.fillRect(x * BLOCK + 1, y * BLOCK + 1, BLOCK - 2, 4);
+  context.fillStyle = 'rgba(0,0,0,0.25)';
+  context.fillRect(x * BLOCK + 1, y * BLOCK + BLOCK - 5, BLOCK - 2, 4);
+  context.globalAlpha = 1;
+}
+
+function drawBoard() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 그리드
+  ctx.strokeStyle = '#1a1a2e';
+  ctx.lineWidth = 0.5;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      ctx.strokeRect(c * BLOCK, r * BLOCK, BLOCK, BLOCK);
+    }
+  }
+
+  // 보드 블록
+  board.forEach((row, r) => {
+    row.forEach((color, c) => {
+      if (color) drawBlock(ctx, c, r, color);
+    });
+  });
+
+  // 고스트
+  if (ghost) {
+    ghost.shape.forEach((row, r) => {
+      row.forEach((val, c) => {
+        if (val) {
+          ctx.globalAlpha = 0.2;
+          ctx.fillStyle = current.color;
+          ctx.fillRect((ghost.x + c) * BLOCK + 1, (ghost.y + r) * BLOCK + 1, BLOCK - 2, BLOCK - 2);
+          ctx.strokeStyle = current.color;
+          ctx.lineWidth = 1;
+          ctx.strokeRect((ghost.x + c) * BLOCK + 1, (ghost.y + r) * BLOCK + 1, BLOCK - 2, BLOCK - 2);
+          ctx.globalAlpha = 1;
+        }
+      });
+    });
+  }
+
+  // 현재 피스
+  if (current) {
+    current.shape.forEach((row, r) => {
+      row.forEach((val, c) => {
+        if (val) drawBlock(ctx, current.x + c, current.y + r, current.color);
+      });
+    });
+  }
+}
+
+function drawNext() {
+  nctx.clearRect(0, 0, 100, 100);
+  if (!nextPiece) return;
+  const s = nextPiece.shape;
+  const offX = Math.floor((4 - s[0].length) / 2);
+  const offY = Math.floor((4 - s.length) / 2);
+  const b = 20;
+  s.forEach((row, r) => {
+    row.forEach((val, c) => {
+      if (!val) return;
+      nctx.fillStyle = nextPiece.color;
+      nctx.fillRect((offX + c) * b + 5, (offY + r) * b + 5, b - 2, b - 2);
+      nctx.fillStyle = 'rgba(255,255,255,0.18)';
+      nctx.fillRect((offX + c) * b + 5, (offY + r) * b + 5, b - 2, 3);
+    });
+  });
+}
+
+// ── 게임 루프 ─────────────────────────────────────────
+function loop(timestamp) {
+  if (gameOver || paused) return;
+  const delta = timestamp - lastTime;
+  lastTime = timestamp;
+  dropCounter += delta;
+  if (dropCounter >= dropInterval) {
+    dropCounter = 0;
+    if (!collides(current, 0, 1)) { current.y++; }
+    else { lock(); }
+  }
+  drawBoard();
+  animId = requestAnimationFrame(loop);
+}
+
+// ── 시작 / 종료 ───────────────────────────────────────
+function startGame() {
+  initBoard();
+  score = 0; level = 1; lines = 0; lives = MAX_LIVES;
+  dropInterval = 1000; dropCounter = 0;
+  gameOver = false; paused = false;
+  updateScore();
+  updateLives();
+  nextPiece = randomPieceDef();
+  current = newPiece();
+  updateGhost();
+  drawNext();
+  overlay.classList.add('hidden');
+  if (animId) cancelAnimationFrame(animId);
+  lastTime = performance.now();
+  animId = requestAnimationFrame(loop);
+}
+
+function loseLife() {
+  lives--;
+  updateLives();
+
+  if (lives <= 0) {
+    gameOver = true;
+    overlay.classList.remove('hidden');
+    overlay.className = '';
+    overlay.innerHTML = `<h2>GAME OVER</h2><p>최종 점수: ${score}</p><p>아무 키나 눌러 재시작</p>`;
+    return;
+  }
+
+  // 목숨이 남아있으면 보드만 초기화하고 재개
+  paused = true;
+  overlay.classList.remove('hidden');
+  overlay.className = 'life-lost';
+  overlay.innerHTML = `<h2>💔 목숨 -1</h2><p>남은 목숨: ${'❤'.repeat(lives)}</p><p>잠시 후 재개됩니다...</p>`;
+
+  setTimeout(() => {
+    initBoard();
+    nextPiece = randomPieceDef();
+    current = newPiece();
+    updateGhost();
+    drawNext();
+    overlay.classList.add('hidden');
+    overlay.className = 'hidden';
+    paused = false;
+    dropCounter = 0;
+    lastTime = performance.now();
+    animId = requestAnimationFrame(loop);
+  }, 2000);
+}
+
+// ── 입력 ──────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (gameOver) { startGame(); return; }
+  if (!current) return;
+
+  switch (e.key) {
+    case 'ArrowLeft':  e.preventDefault(); if (!paused) moveLeft(); break;
+    case 'ArrowRight': e.preventDefault(); if (!paused) moveRight(); break;
+    case 'ArrowUp':    e.preventDefault(); if (!paused) tryRotate(); break;
+    case 'ArrowDown':  e.preventDefault(); if (!paused) softDrop(); break;
+    case ' ':          e.preventDefault(); if (!paused) hardDrop(); break;
+    case 'p': case 'P':
+      paused = !paused;
+      if (!paused) { lastTime = performance.now(); animId = requestAnimationFrame(loop); }
+      break;
+  }
+});
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+// 오버레이 클릭으로도 시작
+overlay.addEventListener('click', () => { if (gameOver || !animId) startGame(); });
+
+// 초기 화면
+drawBoard();
+</script>
+</body>
+</html>
