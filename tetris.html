@@ -203,7 +203,7 @@ const PIECES = [
 let board = [];
 let current = null, ghost = null;
 let nextPiece = null;
-let gameOver = false, paused = false;
+let gameOver = false, paused = false, isLosingLife = false;
 let dropInterval = 1000;
 let lastTime = 0, dropCounter = 0;
 let animId = null;
@@ -285,7 +285,7 @@ function hardDrop() {
 
 // ── 고스트 ────────────────────────────────────────────
 function updateGhost() {
-  ghost = { ...current, shape: current.shape };
+  ghost = { ...current, shape: current.shape.map(r => [...r]) };
   while (!collides(ghost, 0, 1)) ghost.y++;
 }
 
@@ -441,7 +441,7 @@ function startGame() {
   initBoard();
   score = 0; level = 1; lines = 0; lives = MAX_LIVES;
   dropInterval = 1000; dropCounter = 0;
-  gameOver = false; paused = false;
+  gameOver = false; paused = false; isLosingLife = false;
   updateScore();
   updateLives();
   nextPiece = randomPieceDef();
@@ -455,12 +455,14 @@ function startGame() {
 }
 
 function loseLife() {
+  if (isLosingLife) return;  // 중복 호출 방지
+  isLosingLife = true;
   lives--;
   updateLives();
 
   if (lives <= 0) {
     gameOver = true;
-    overlay.classList.remove('hidden');
+    isLosingLife = false;
     overlay.className = '';
     overlay.innerHTML = `<h2>GAME OVER</h2><p>최종 점수: ${score}</p><p>아무 키나 눌러 재시작</p>`;
     return;
@@ -468,7 +470,6 @@ function loseLife() {
 
   // 목숨이 남아있으면 보드만 초기화하고 재개
   paused = true;
-  overlay.classList.remove('hidden');
   overlay.className = 'life-lost';
   overlay.innerHTML = `<h2>💔 목숨 -1</h2><p>남은 목숨: ${'❤'.repeat(lives)}</p><p>잠시 후 재개됩니다...</p>`;
 
@@ -478,10 +479,11 @@ function loseLife() {
     current = newPiece();
     updateGhost();
     drawNext();
-    overlay.classList.add('hidden');
     overlay.className = 'hidden';
     paused = false;
+    isLosingLife = false;
     dropCounter = 0;
+    if (animId) cancelAnimationFrame(animId);
     lastTime = performance.now();
     animId = requestAnimationFrame(loop);
   }, 2000);
@@ -499,8 +501,13 @@ document.addEventListener('keydown', e => {
     case 'ArrowDown':  e.preventDefault(); if (!paused) softDrop(); break;
     case ' ':          e.preventDefault(); if (!paused) hardDrop(); break;
     case 'p': case 'P':
+      if (isLosingLife) break;
       paused = !paused;
-      if (!paused) { lastTime = performance.now(); animId = requestAnimationFrame(loop); }
+      if (!paused) {
+        if (animId) cancelAnimationFrame(animId);
+        lastTime = performance.now();
+        animId = requestAnimationFrame(loop);
+      }
       break;
   }
 });
